@@ -198,7 +198,7 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
         options: PresentationBuilderOptions,
     ) -> Result<Self, ProcessingThemeError> {
         let theme = PresentationTheme::new(default_raw_theme, &resources, &options.theme_options)?;
-        Ok(Self {
+        let mut builder = Self {
             slide_chunks: Vec::new(),
             chunk_operations: Vec::new(),
             chunk_mutators: Vec::new(),
@@ -221,7 +221,9 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
             sources: Default::default(),
             executable_snippets: Default::default(),
             options,
-        })
+        };
+        builder.reset_slide_state();
+        Ok(builder)
     }
 
     /// Build a presentation from a markdown input.
@@ -360,6 +362,9 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
             }),
         ]);
         self.push_line_break();
+        if self.theme.default_style.center_slides {
+            self.chunk_operations.push(RenderOperation::JumpToVerticalCenter);
+        }
     }
 
     fn process_element_for_presentation_mode(&mut self, element: MarkdownElement) -> BuildResult {
@@ -536,7 +541,15 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
         }
 
         self.push_slide_prelude();
+        self.reset_slide_state();
+    }
+
+    fn reset_slide_state(&mut self) {
         self.slide_state = Default::default();
+        if self.theme.default_style.center_slides {
+            self.slide_state.alignment =
+                Some(Alignment::Center { minimum_margin: Default::default(), minimum_size: Default::default() });
+        }
     }
 
     fn apply_theme_text_style(&self, text: &mut Text) {

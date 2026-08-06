@@ -78,16 +78,20 @@ default:
 The default style specifies:
 
 * The margin to be applied to all slides.
+* Whether slides should start centered both vertically and horizontally.
 * The colors to be used for all text.
 
 ```yaml
 default:
   margin:
     percent: 8
+  center_slides: false
   colors:
     foreground: "e6e6e6"
     background: "040312"
 ```
+
+Set `center_slides: true` to make every slide behave as if it started with `jump_to_center`.
 
 ## Intro slide
 

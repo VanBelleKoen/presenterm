@@ -351,6 +351,10 @@ pub(crate) struct DefaultStyle {
     #[serde(default, with = "serde_yaml::with::singleton_map")]
     pub(crate) margin: Option<Margin>,
 
+    /// Whether slides should start centered (vertically and horizontally).
+    #[serde(default)]
+    pub(crate) center_slides: Option<bool>,
+
     /// The colors to be used.
     #[serde(default)]
     pub(crate) colors: RawColors,

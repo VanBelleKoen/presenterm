@@ -1,5 +1,6 @@
 use super::*;
 use crate::presentation::builder::utils::Test;
+use crate::theme::raw;
 
 #[test]
 fn prelude_appears_once() {
@@ -84,4 +85,26 @@ fn footnote() {
     let lines = Test::new(elements).render().rows(3).columns(5).into_lines();
     let expected = &["     ", "hi   ", "bye  "];
     assert_eq!(lines, expected);
+}
+
+#[test]
+fn slides_centered_by_theme_default() {
+    let input = "
+hello
+
+<!-- end_slide -->
+
+bye
+";
+    let theme = raw::PresentationTheme {
+        default_style: raw::DefaultStyle { center_slides: Some(true), ..Default::default() },
+        footer: Some(raw::FooterStyle::Empty),
+        ..Default::default()
+    };
+
+    let first_slide = Test::new(input).theme(theme.clone()).render().rows(5).columns(11).advances(0).into_lines();
+    assert_eq!(first_slide, &["           ", "   hello   ", "           ", "           ", "           "]);
+
+    let second_slide = Test::new(input).theme(theme).render().rows(5).columns(11).advances(1).into_lines();
+    assert_eq!(second_slide, &["           ", "    bye    ", "           ", "           ", "           "]);
 }

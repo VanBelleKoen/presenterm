@@ -459,17 +459,19 @@ impl AuthorStyle {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DefaultStyle {
     pub(crate) margin: Margin,
+    pub(crate) center_slides: bool,
     pub(crate) style: TextStyle,
     pub(crate) alignment: Alignment,
 }
 
 impl DefaultStyle {
     fn new(raw: &raw::DefaultStyle, palette: &ColorPalette) -> Result<Self, ProcessingThemeError> {
-        let raw::DefaultStyle { margin, colors, alignment } = raw;
+        let raw::DefaultStyle { margin, center_slides, colors, alignment } = raw;
         let margin = margin.unwrap_or_default();
+        let center_slides = center_slides.unwrap_or_default();
         let style = TextStyle::colored(colors.resolve(palette)?);
         let alignment = alignment.clone().unwrap_or_default().into();
-        Ok(Self { margin, style, alignment })
+        Ok(Self { margin, center_slides, style, alignment })
     }
 }
 

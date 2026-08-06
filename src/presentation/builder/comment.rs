@@ -47,6 +47,11 @@ impl PresentationBuilder<'_, '_> {
             }
             CommentCommand::Comment(_) => {}
             CommentCommand::JumpToMiddle => self.chunk_operations.push(RenderOperation::JumpToVerticalCenter),
+            CommentCommand::JumpToCenter => {
+                self.chunk_operations.push(RenderOperation::JumpToVerticalCenter);
+                self.slide_state.alignment =
+                    Some(Alignment::Center { minimum_margin: Default::default(), minimum_size: Default::default() });
+            }
             CommentCommand::InitColumnLayout(columns) => {
                 self.validate_column_layout(&columns, source_position)?;
                 let resolved_position = self.sources.resolve_source_position(source_position);
@@ -214,6 +219,7 @@ pub(crate) enum CommentCommand {
     IncrementalTables(bool),
     #[serde(rename = "column_layout")]
     InitColumnLayout(Vec<u8>),
+    JumpToCenter,
     JumpToMiddle,
     ListItemNewlines(NonZeroU8),
     #[serde(alias = "newline")]
@@ -252,6 +258,7 @@ impl CommentCommand {
                         vec!["<!-- incremental_tables: true -->", "<!-- incremental_tables: false -->"]
                     }
                     InitColumnLayout => vec!["<!-- column_layout: [1, 2] -->"],
+                    JumpToCenter => vec!["<!-- jump_to_center -->"],
                     JumpToMiddle => vec!["<!-- jump_to_middle -->"],
                     ListItemNewlines => vec!["<!-- list_item_newlines: 2 -->"],
                     NewLine => vec!["<!-- new_line -->"],
@@ -317,6 +324,7 @@ mod tests {
     #[case::end_slide("end_slide", CommentCommand::EndSlide)]
     #[case::column_layout("column_layout: [1, 2]", CommentCommand::InitColumnLayout(vec![1, 2]))]
     #[case::column("column: 1", CommentCommand::Column(1))]
+    #[case::jump_to_center("jump_to_center", CommentCommand::JumpToCenter)]
     #[case::reset_layout("reset_layout", CommentCommand::ResetLayout)]
     #[case::incremental_lists("incremental_lists: true", CommentCommand::IncrementalLists(true))]
     #[case::incremental_lists("new_lines: 2", CommentCommand::NewLines(2))]
@@ -378,6 +386,17 @@ mod tests {
 <!-- column: 1 -->
 ";
         Test::new(input).expect_invalid();
+    }
+
+    #[test]
+    fn jump_to_center() {
+        let input = "
+<!-- jump_to_center -->
+hi
+";
+        let lines = Test::new(input).render().rows(5).columns(10).into_lines();
+        let expected = &["          ", "    hi    ", "          ", "          ", "          "];
+        assert_eq!(lines, expected);
     }
 
     #[rstest]

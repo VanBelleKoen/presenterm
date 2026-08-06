@@ -49,6 +49,17 @@ Farming potatoes
 
 This will create a slide with the text "Farming potatoes" in the center, rendered using the slide title style.
 
+## Jumping to the center
+
+The command `jump_to_center` moves the cursor to the middle of the page vertically and also sets text alignment to
+center for the remainder of the slide:
+
+```markdown
+<!-- jump_to_center -->
+
+This text is centered both vertically and horizontally
+```
+
 ## Explicit new lines
 
 The `newline`/`new_line` and `newlines`/`new_lines` commands allow you to explicitly create new lines. Because markdown 
@@ -201,6 +212,7 @@ Each command is output on a separate line with appropriate default values where 
 <!-- new_line -->
 <!-- new_lines: 2 -->
 <!-- jump_to_middle -->
+<!-- jump_to_center -->
 <!-- column_layout: [1, 2] -->
 <!-- column: 0 -->
 <!-- reset_layout -->

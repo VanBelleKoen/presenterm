@@ -5,7 +5,9 @@ use crate::{
         text_style::{TextStyle, UndefinedPaletteColorError},
     },
     render::{
-        operation::{AsRenderOperations, ImagePosition, ImageRenderProperties, MarginProperties, RenderOperation},
+        operation::{
+            AsRenderOperations, ImagePosition, ImageRenderProperties, ImageSize, MarginProperties, RenderOperation,
+        },
         properties::WindowSize,
     },
     terminal::image::Image,
@@ -39,8 +41,9 @@ impl FooterGenerator {
         style: FooterStyle,
         vars: &FooterVariables,
         palette: &ColorPalette,
+        include_images: bool,
     ) -> Result<Self, InvalidFooterTemplateError> {
-        let style = RenderedFooterStyle::new(style, vars, palette)?;
+        let style = RenderedFooterStyle::new(style, vars, palette, include_images)?;
         let current_slide = vars.current_slide;
         let total_slides = vars.total_slides as u64;
         Ok(Self { current_slide, total_slides, style })
@@ -54,7 +57,7 @@ impl FooterGenerator {
     }
 
     fn push_image(&self, image: &Image, alignment: Alignment, height: u16, operations: &mut Vec<RenderOperation>) {
-        let mut properties = ImageRenderProperties::default();
+        let mut properties = ImageRenderProperties { size: ImageSize::ShrinkIfNeeded, ..Default::default() };
 
         operations.push(RenderOperation::ApplyMargin(MarginProperties {
             horizontal: Margin::Fixed(0),
@@ -153,12 +156,22 @@ impl RenderedFooterStyle {
         style: FooterStyle,
         vars: &FooterVariables,
         palette: &ColorPalette,
+        include_images: bool,
     ) -> Result<Self, InvalidFooterTemplateError> {
         match style {
             FooterStyle::Template { left, center, right, style, height } => {
-                let left = left.map(|c| RenderedFooterContent::new(c, &style, vars, palette)).transpose()?;
-                let center = center.map(|c| RenderedFooterContent::new(c, &style, vars, palette)).transpose()?;
-                let right = right.map(|c| RenderedFooterContent::new(c, &style, vars, palette)).transpose()?;
+                let left = left
+                    .filter(|content| include_images || !matches!(content, FooterContent::Image(_)))
+                    .map(|c| RenderedFooterContent::new(c, &style, vars, palette))
+                    .transpose()?;
+                let center = center
+                    .filter(|content| include_images || !matches!(content, FooterContent::Image(_)))
+                    .map(|c| RenderedFooterContent::new(c, &style, vars, palette))
+                    .transpose()?;
+                let right = right
+                    .filter(|content| include_images || !matches!(content, FooterContent::Image(_)))
+                    .map(|c| RenderedFooterContent::new(c, &style, vars, palette))
+                    .transpose()?;
                 Ok(Self::Template { left, center, right, height })
             }
             FooterStyle::ProgressBar { character, style } => Ok(Self::ProgressBar { character, style }),
@@ -264,7 +277,11 @@ pub(crate) enum InvalidFooterTemplateError {
 
 #[cfg(test)]
 mod tests {
-    use crate::markdown::text_style::Color;
+    use crate::{
+        markdown::text_style::Color,
+        terminal::image::{ImageSource, printer::TerminalImage},
+    };
+    use image::{ColorType, DynamicImage};
 
     use super::*;
     use once_cell::sync::Lazy;
@@ -341,5 +358,24 @@ mod tests {
             Text::new("hi", TextStyle::default().fg_color(Color::Green)),
         ];
         assert_eq!(line.0.0, expected);
+    }
+
+    #[test]
+    fn starting_slide_omits_footer_images() {
+        let image =
+            Image::new(TerminalImage::Ascii(DynamicImage::new(2, 2, ColorType::Rgba8).into()), ImageSource::Generated);
+        let style = FooterStyle::Template {
+            left: Some(FooterContent::Image(image)),
+            center: None,
+            right: None,
+            style: TextStyle::default(),
+            height: 3,
+        };
+
+        let starting = RenderedFooterStyle::new(style.clone(), &VARIABLES, &PALETTE, false).expect("render failed");
+        let later = RenderedFooterStyle::new(style, &VARIABLES, &PALETTE, true).expect("render failed");
+
+        assert!(matches!(starting, RenderedFooterStyle::Template { left: None, .. }));
+        assert!(matches!(later, RenderedFooterStyle::Template { left: Some(RenderedFooterContent::Image(_)), .. }));
     }
 }

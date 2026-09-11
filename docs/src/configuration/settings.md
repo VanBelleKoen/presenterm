@@ -57,6 +57,22 @@ Possible values are:
 * `iterm2`: use the iterm2 protocol.
 * `sixel`: use the sixel protocol.
 
+## Footer images
+
+Footer template slots can contain an image path. The image is scaled to fit the footer area and is shown on every
+slide after the introduction slide:
+
+```yaml
+footer:
+  style: template
+  height: 4
+  left:
+    image: assets/logo.png
+  right: "{current_slide} / {total_slides}"
+```
+
+The introduction slide does not display footer images.
+
 ## Maximum presentation width
 
 The `max_columns` property can be set to specify the maximum number of columns that the presentation will stretch to. If 

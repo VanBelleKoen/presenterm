@@ -281,33 +281,7 @@ impl CoreComponents {
         force_default_theme: bool,
         render_speaker_notes_only: bool,
     ) -> PresentationBuilderOptions {
-        let options = &config.options;
-        PresentationBuilderOptions {
-            allow_mutations: true,
-            implicit_slide_ends: options.implicit_slide_ends.unwrap_or_default(),
-            command_prefix: options.command_prefix.clone().unwrap_or_default(),
-            image_attribute_prefix: options.image_attributes_prefix.clone().unwrap_or_else(|| "image:".to_string()),
-            incremental_lists: options.incremental_lists.unwrap_or_default(),
-            incremental_tables: options.incremental_tables.unwrap_or_default(),
-            force_default_theme,
-            end_slide_shorthand: options.end_slide_shorthand.unwrap_or_default(),
-            print_modal_background: false,
-            strict_front_matter_parsing: options.strict_front_matter_parsing.unwrap_or(true),
-            enable_snippet_execution: config.snippet.exec.enable,
-            enable_snippet_execution_replace: config.snippet.exec_replace.enable,
-            render_speaker_notes_only,
-            auto_render_languages: options.auto_render_languages.clone(),
-            theme_options: ThemeOptions { font_size_supported: TerminalEmulator::capabilities().font_size },
-            pause_before_incremental_lists: config.defaults.incremental_lists.pause_before.unwrap_or(true),
-            pause_after_incremental_lists: config.defaults.incremental_lists.pause_after.unwrap_or(true),
-            pause_before_incremental_tables: config.defaults.incremental_tables.pause_before.unwrap_or(true),
-            pause_after_incremental_tables: config.defaults.incremental_tables.pause_after.unwrap_or(true),
-            pause_create_new_slide: false,
-            list_item_newlines: options.list_item_newlines.map(Into::into).unwrap_or(1),
-            validate_snippets: config.snippet.validate,
-            layout_grid: false,
-            h1_slide_titles: options.h1_slide_titles.unwrap_or_default(),
-        }
+        PresentationBuilderOptions::from_config(config, force_default_theme, render_speaker_notes_only)
     }
 
     fn select_graphics_mode(cli: &Cli, config: &Config) -> GraphicsMode {

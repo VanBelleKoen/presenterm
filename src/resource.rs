@@ -263,3 +263,29 @@ enum WatchEvent {
     /// Add a file to the watch list.
     WatchFile { path: PathBuf, watch_forever: bool },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn modified_watched_files_are_reported_once() {
+        let directory = tempdir().expect("failed to create temporary directory");
+        let path = directory.path().join("presentation.md");
+        fs::write(&path, "# slide").expect("failed to write presentation");
+        let (sender, receiver) = channel();
+        let mut watcher = FileWatcher {
+            receiver,
+            watches: HashMap::from([(
+                path,
+                WatchMetadata { last_modification: SystemTime::UNIX_EPOCH, watch_forever: true },
+            )]),
+            modifications: Arc::new(AtomicBool::default()),
+        };
+
+        assert!(watcher.watches_modified());
+        assert!(!watcher.watches_modified());
+        drop(sender);
+    }
+}

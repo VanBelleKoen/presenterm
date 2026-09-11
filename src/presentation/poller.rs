@@ -1,11 +1,13 @@
 use crate::render::operation::{Pollable, PollableState};
 use std::{
+    panic::{self, AssertUnwindSafe},
     sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
+const POLLABLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub(crate) struct Poller {
     sender: Sender<PollerCommand>,
@@ -54,12 +56,17 @@ pub(crate) enum PollerCommand {
 struct PollerWorker {
     receiver: Receiver<PollerCommand>,
     sender: Sender<PollableEffect>,
-    pollables: Vec<(Box<dyn Pollable>, usize)>,
+    pollables: Vec<(Box<dyn Pollable>, usize, Instant)>,
+    pollable_timeout: Duration,
 }
 
 impl PollerWorker {
     fn new(receiver: Receiver<PollerCommand>, sender: Sender<PollableEffect>) -> Self {
-        Self { receiver, sender, pollables: Default::default() }
+        Self::with_timeout(receiver, sender, POLLABLE_TIMEOUT)
+    }
+
+    fn with_timeout(receiver: Receiver<PollerCommand>, sender: Sender<PollableEffect>, timeout: Duration) -> Self {
+        Self { receiver, sender, pollables: Default::default(), pollable_timeout: timeout }
     }
 
     fn run(mut self) {
@@ -77,9 +84,10 @@ impl PollerWorker {
         match command {
             PollerCommand::Poll { mut pollable, slide } => {
                 // Poll and only insert if it's still running.
-                match pollable.poll() {
+                let started_at = Instant::now();
+                match poll_safely(pollable.as_mut()) {
                     PollableState::Unmodified | PollableState::Modified => {
-                        self.pollables.push((pollable, slide));
+                        self.pollables.push((pollable, slide, started_at));
                     }
                     PollableState::Done => {
                         let _ = self.sender.send(PollableEffect::RefreshSlide(slide));
@@ -95,13 +103,23 @@ impl PollerWorker {
 
     fn poll(&mut self) {
         let mut removables = Vec::new();
-        for (index, (pollable, slide)) in self.pollables.iter_mut().enumerate() {
+        for (index, (pollable, slide, started_at)) in self.pollables.iter_mut().enumerate() {
             let slide = *slide;
-            let (effect, remove) = match pollable.poll() {
-                PollableState::Unmodified => (None, false),
-                PollableState::Modified => (Some(PollableEffect::RefreshSlide(slide)), false),
-                PollableState::Done => (Some(PollableEffect::RefreshSlide(slide)), true),
-                PollableState::Failed { error } => (Some(PollableEffect::DisplayError { slide, error }), true),
+            let (effect, remove) = if started_at.elapsed() >= self.pollable_timeout {
+                (
+                    Some(PollableEffect::DisplayError {
+                        slide,
+                        error: format!("pollable timed out after {:?}", self.pollable_timeout),
+                    }),
+                    true,
+                )
+            } else {
+                match poll_safely(pollable.as_mut()) {
+                    PollableState::Unmodified => (None, false),
+                    PollableState::Modified => (Some(PollableEffect::RefreshSlide(slide)), false),
+                    PollableState::Done => (Some(PollableEffect::RefreshSlide(slide)), true),
+                    PollableState::Failed { error } => (Some(PollableEffect::DisplayError { slide, error }), true),
+                }
             };
             if let Some(effect) = effect {
                 let _ = self.sender.send(effect);
@@ -114,5 +132,78 @@ impl PollerWorker {
         for index in removables.iter().rev() {
             self.pollables.swap_remove(*index);
         }
+    }
+}
+
+fn poll_safely(pollable: &mut dyn Pollable) -> PollableState {
+    match panic::catch_unwind(AssertUnwindSafe(|| pollable.poll())) {
+        Ok(state) => state,
+        Err(_) => PollableState::Failed { error: "pollable panicked while polling".into() },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct PanicPollable;
+
+    impl Pollable for PanicPollable {
+        fn poll(&mut self) -> PollableState {
+            panic!("test panic")
+        }
+    }
+
+    #[test]
+    fn poll_safely_converts_panics_to_failures() {
+        let state = poll_safely(&mut PanicPollable);
+
+        assert_eq!(state, PollableState::Failed { error: "pollable panicked while polling".into() });
+    }
+
+    #[test]
+    fn initial_panicking_pollable_emits_an_error() {
+        let (_command_sender, command_receiver) = channel();
+        let (effect_sender, effect_receiver) = channel();
+        let mut worker = PollerWorker::new(command_receiver, effect_sender);
+
+        worker.process_command(PollerCommand::Poll { pollable: Box::new(PanicPollable), slide: 3 });
+
+        assert!(matches!(
+            effect_receiver.try_recv().unwrap(),
+            PollableEffect::DisplayError { slide: 3, error } if error == "pollable panicked while polling"
+        ));
+    }
+
+    #[test]
+    fn ongoing_panicking_pollable_emits_an_error_and_is_removed() {
+        let (_command_sender, command_receiver) = channel();
+        let (effect_sender, effect_receiver) = channel();
+        let mut worker = PollerWorker::new(command_receiver, effect_sender);
+        worker.pollables.push((Box::new(PanicPollable), 4, Instant::now()));
+
+        worker.poll();
+
+        assert!(matches!(
+            effect_receiver.try_recv().unwrap(),
+            PollableEffect::DisplayError { slide: 4, error } if error == "pollable panicked while polling"
+        ));
+        assert!(worker.pollables.is_empty());
+    }
+
+    #[test]
+    fn ongoing_pollable_times_out_and_is_removed() {
+        let (_command_sender, command_receiver) = channel();
+        let (effect_sender, effect_receiver) = channel();
+        let mut worker = PollerWorker::with_timeout(command_receiver, effect_sender, Duration::ZERO);
+        worker.pollables.push((Box::new(PanicPollable), 5, Instant::now()));
+
+        worker.poll();
+
+        assert!(matches!(
+            effect_receiver.try_recv().unwrap(),
+            PollableEffect::DisplayError { slide: 5, error } if error == "pollable timed out after 0ns"
+        ));
+        assert!(worker.pollables.is_empty());
     }
 }

@@ -4,7 +4,7 @@ use crate::{
         highlighting::{HighlightThemeSet, SnippetHighlighter},
         snippet::SnippetLanguage,
     },
-    config::{KeyBindingsConfig, OptionsConfig},
+    config::{Config, KeyBindingsConfig, OptionsConfig},
     markdown::{
         elements::{Line, MarkdownElement, SourcePosition, Text},
         parse::MarkdownParser,
@@ -20,6 +20,7 @@ use crate::{
     },
     render::operation::{BlockLine, MarginProperties},
     resource::{ResourceBasePath, Resources},
+    terminal::emulator::TerminalEmulator,
     terminal::image::{
         Image,
         printer::{ImageRegistry, ImageSpec, RegisterImageError},
@@ -101,6 +102,36 @@ pub struct PresentationBuilderOptions {
 }
 
 impl PresentationBuilderOptions {
+    pub(crate) fn from_config(config: &Config, force_default_theme: bool, render_speaker_notes_only: bool) -> Self {
+        let options = &config.options;
+        Self {
+            allow_mutations: true,
+            implicit_slide_ends: options.implicit_slide_ends.unwrap_or_default(),
+            command_prefix: options.command_prefix.clone().unwrap_or_default(),
+            image_attribute_prefix: options.image_attributes_prefix.clone().unwrap_or_else(|| "image:".to_string()),
+            incremental_lists: options.incremental_lists.unwrap_or_default(),
+            incremental_tables: options.incremental_tables.unwrap_or_default(),
+            force_default_theme,
+            end_slide_shorthand: options.end_slide_shorthand.unwrap_or_default(),
+            print_modal_background: false,
+            strict_front_matter_parsing: options.strict_front_matter_parsing.unwrap_or(true),
+            enable_snippet_execution: config.snippet.exec.enable,
+            enable_snippet_execution_replace: config.snippet.exec_replace.enable,
+            render_speaker_notes_only,
+            auto_render_languages: options.auto_render_languages.clone(),
+            theme_options: ThemeOptions { font_size_supported: TerminalEmulator::capabilities().font_size },
+            pause_before_incremental_lists: config.defaults.incremental_lists.pause_before.unwrap_or(true),
+            pause_after_incremental_lists: config.defaults.incremental_lists.pause_after.unwrap_or(true),
+            pause_before_incremental_tables: config.defaults.incremental_tables.pause_before.unwrap_or(true),
+            pause_after_incremental_tables: config.defaults.incremental_tables.pause_after.unwrap_or(true),
+            pause_create_new_slide: false,
+            list_item_newlines: options.list_item_newlines.map(Into::into).unwrap_or(1),
+            validate_snippets: config.snippet.validate,
+            layout_grid: false,
+            h1_slide_titles: options.h1_slide_titles.unwrap_or_default(),
+        }
+    }
+
     fn merge(&mut self, options: OptionsConfig) {
         self.implicit_slide_ends = options.implicit_slide_ends.unwrap_or(self.implicit_slide_ends);
         self.incremental_lists = options.incremental_lists.unwrap_or(self.incremental_lists);
@@ -282,7 +313,7 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
         for (index, mut builder) in builders.into_iter().enumerate() {
             self.footer_vars.current_slide = index + 1;
             if !self.slides_without_footer.contains(&index) {
-                builder = builder.footer(self.generate_footer()?);
+                builder = builder.footer(self.generate_footer(index != 0)?);
             }
             slides.push(builder.build());
         }
@@ -619,8 +650,9 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
         true
     }
 
-    fn generate_footer(&self) -> Result<Vec<RenderOperation>, BuildError> {
-        let generator = FooterGenerator::new(self.theme.footer.clone(), &self.footer_vars, &self.theme.palette)?;
+    fn generate_footer(&self, include_images: bool) -> Result<Vec<RenderOperation>, BuildError> {
+        let generator =
+            FooterGenerator::new(self.theme.footer.clone(), &self.footer_vars, &self.theme.palette, include_images)?;
         Ok(vec![
             // Exit any layout we're in so this gets rendered on a default screen size.
             RenderOperation::ExitLayout,

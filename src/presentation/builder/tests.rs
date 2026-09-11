@@ -92,6 +92,8 @@ fn slides_centered_by_theme_default() {
     let input = "
 hello
 
+world
+
 <!-- end_slide -->
 
 bye
@@ -103,8 +105,8 @@ bye
     };
 
     let first_slide = Test::new(input).theme(theme.clone()).render().rows(5).columns(11).advances(0).into_lines();
-    assert_eq!(first_slide, &["           ", "   hello   ", "           ", "           ", "           "]);
+    assert_eq!(first_slide, &["   hello   ", "           ", "   world   ", "           ", "           "]);
 
     let second_slide = Test::new(input).theme(theme).render().rows(5).columns(11).advances(1).into_lines();
-    assert_eq!(second_slide, &["           ", "    bye    ", "           ", "           ", "           "]);
+    assert_eq!(second_slide, &["    bye    ", "           ", "           ", "           ", "           "]);
 }

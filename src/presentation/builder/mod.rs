@@ -18,7 +18,7 @@ use crate::{
             sources::MarkdownSources,
         },
     },
-    render::operation::MarginProperties,
+    render::operation::{BlockLine, MarginProperties},
     resource::{ResourceBasePath, Resources},
     terminal::image::{
         Image,
@@ -45,6 +45,7 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
+use unicode_width::UnicodeWidthStr;
 
 pub(crate) mod error;
 
@@ -474,10 +475,52 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
     }
 
     fn push_paragraph(&mut self, lines: Vec<Line<RawColor>>) -> BuildResult {
+        // Check if we should render as a centered block (for center_slides to work correctly)
+        let alignment =
+            self.slide_state.alignment.clone().unwrap_or_else(|| self.theme.alignment(&ElementType::Paragraph));
+
+        if matches!(alignment, Alignment::Center { .. }) && lines.len() > 1 {
+            // Render multi-line centered paragraphs as a block to keep lines aligned
+            self.push_paragraph_as_block(lines, alignment)
+        } else {
+            // Render line by line (original behavior)
+            for line in lines {
+                let line = line.resolve(&self.theme.palette)?;
+                self.push_text(line, ElementType::Paragraph);
+                self.push_line_breaks(self.slide_font_size() as usize);
+            }
+            Ok(())
+        }
+    }
+
+    fn push_paragraph_as_block(&mut self, lines: Vec<Line<RawColor>>, alignment: Alignment) -> BuildResult {
+        let font_size = self.slide_font_size();
+
+        // Calculate block width as the maximum line width
+        let block_length = lines
+            .iter()
+            .map(|line| line.0.iter().map(|text| text.content.as_str().width()).sum::<usize>())
+            .max()
+            .unwrap_or(0) as u16;
+
         for line in lines {
-            let line = line.resolve(&self.theme.palette)?;
-            self.push_text(line, ElementType::Paragraph);
-            self.push_line_breaks(self.slide_font_size() as usize);
+            let mut line = line.resolve(&self.theme.palette)?;
+            // Apply styling to each chunk
+            for text in &mut line.0 {
+                self.apply_theme_text_style(text);
+                text.style = text.style.size(font_size);
+            }
+            // Render as a block line with left alignment within the centered block
+            self.chunk_operations.push(RenderOperation::RenderBlockLine(BlockLine {
+                prefix: Text::default().into(),
+                right_padding_length: 0,
+                repeat_prefix_on_wrap: true,
+                text: line.into(),
+                block_length,
+                alignment: alignment.clone(),
+                block_color: None,
+            }));
+            self.push_line_break();
         }
         Ok(())
     }

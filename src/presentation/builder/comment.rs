@@ -395,7 +395,7 @@ mod tests {
 hi
 ";
         let lines = Test::new(input).render().rows(5).columns(10).into_lines();
-        let expected = &["          ", "    hi    ", "          ", "          ", "          "];
+        let expected = &["    hi    ", "          ", "          ", "          ", "          "];
         assert_eq!(lines, expected);
     }
 

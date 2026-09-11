@@ -14,13 +14,9 @@ impl PresentationBuilder<'_, '_> {
     pub(crate) fn push_block_quote(&mut self, lines: Vec<Line<RawColor>>) -> BuildResult {
         let prefix = self.theme.block_quote.prefix.clone();
         let prefix_style = self.theme.block_quote.prefix_style;
-        self.push_quoted_text(
-            lines,
-            prefix,
-            self.theme.block_quote.base_style.colors,
-            prefix_style,
-            self.theme.alignment(&ElementType::BlockQuote),
-        )
+        let alignment =
+            self.slide_state.alignment.clone().unwrap_or_else(|| self.theme.alignment(&ElementType::BlockQuote));
+        self.push_quoted_text(lines, prefix, self.theme.block_quote.base_style.colors, prefix_style, alignment)
     }
 
     pub(crate) fn push_alert(
@@ -42,13 +38,8 @@ impl PresentationBuilder<'_, '_> {
         lines.insert(0, Line::from(Text::new(title, style.style.into_raw())));
 
         let prefix = self.theme.alert.prefix.clone();
-        self.push_quoted_text(
-            lines,
-            prefix,
-            self.theme.alert.base_style.colors,
-            style.style,
-            self.theme.alert.alignment,
-        )
+        let alignment = self.slide_state.alignment.clone().unwrap_or(self.theme.alert.alignment);
+        self.push_quoted_text(lines, prefix, self.theme.alert.base_style.colors, style.style, alignment)
     }
 
     fn push_quoted_text(

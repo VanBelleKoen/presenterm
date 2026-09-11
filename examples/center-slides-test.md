@@ -38,7 +38,7 @@ It should still begin around the vertical middle, but text should be right-align
 
 <!-- jump_to_middle -->
 
-This tests compatibility with existing commands.
+This tests compatibility with existing commands. 
 With center_slides enabled, this should remain centered horizontally.
 
 ---
@@ -58,3 +58,10 @@ Left override should be scoped to this slide only.
 
 New slide should be centered again by default.
 This confirms per-slide state reset is working.
+
+---
+
+- This slide demonstrates proper vertical and horizontal centering.
+
+- Content appears in the center of the slide.
+- Vertical alignment is maintained with natural spacing.

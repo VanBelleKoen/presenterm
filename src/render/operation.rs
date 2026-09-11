@@ -39,7 +39,7 @@ pub(crate) enum RenderOperation {
     /// Set the colors to be used for any subsequent operations.
     SetColors(Colors),
 
-    /// Jump the draw cursor into the vertical center, that is, at `screen_height / 2`.
+    /// Jump the draw cursor so the remaining content is vertically centered.
     JumpToVerticalCenter,
 
     /// Jumps to the N-th row in the current layout.

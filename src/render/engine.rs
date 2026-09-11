@@ -107,6 +107,7 @@ where
     }
 
     pub(crate) fn render<'b>(mut self, operations: impl Iterator<Item = &'b RenderOperation>) -> RenderResult {
+        let operations: Vec<_> = operations.collect();
         let current_rect = self.current_rect().clone();
         self.terminal.execute(&TerminalCommand::SetCursorBoundaries {
             rows: current_rect.dimensions.rows.saturating_add(current_rect.start_row),
@@ -116,8 +117,8 @@ where
             self.terminal
                 .execute(&TerminalCommand::MoveTo { column: current_rect.start_column, row: current_rect.start_row })?;
         }
-        for operation in operations {
-            self.render_one(operation)?;
+        for (index, operation) in operations.iter().enumerate() {
+            self.render_one(operation, &operations[index + 1..])?;
         }
         self.terminal.execute(&TerminalCommand::EndUpdate)?;
         self.terminal.execute(&TerminalCommand::Flush)?;
@@ -127,13 +128,13 @@ where
         Ok(())
     }
 
-    fn render_one(&mut self, operation: &RenderOperation) -> RenderResult {
+    fn render_one(&mut self, operation: &RenderOperation, remaining_operations: &[&RenderOperation]) -> RenderResult {
         match operation {
             RenderOperation::ClearScreen => self.clear_screen(),
             RenderOperation::ApplyMargin(properties) => self.apply_margin(properties),
             RenderOperation::PopMargin => self.pop_margin(),
             RenderOperation::SetColors(colors) => self.set_colors(colors),
-            RenderOperation::JumpToVerticalCenter => self.jump_to_vertical_center(),
+            RenderOperation::JumpToVerticalCenter => self.jump_to_vertical_center(remaining_operations),
             RenderOperation::JumpToRow { index } => self.jump_to_row(*index),
             RenderOperation::JumpToBottomRow { index } => self.jump_to_bottom(*index),
             RenderOperation::JumpToColumn { index } => self.jump_to_column(*index),
@@ -209,9 +210,24 @@ where
         Ok(())
     }
 
-    fn jump_to_vertical_center(&mut self) -> RenderResult {
+    fn jump_to_vertical_center(&mut self, remaining_operations: &[&RenderOperation]) -> RenderResult {
         let current = self.current_rect();
-        let center_row = current.dimensions.rows / 2;
+        let content_operations: Vec<_> = remaining_operations
+            .iter()
+            .take_while(|operation| !matches!(operation, RenderOperation::ExitLayout))
+            .collect();
+        let last_content_operation =
+            content_operations.iter().rposition(|operation| !matches!(operation, RenderOperation::RenderLineBreak));
+        let content_rows = last_content_operation
+            .map(|last| {
+                content_operations[..=last]
+                    .iter()
+                    .filter(|operation| matches!(operation, RenderOperation::RenderLineBreak))
+                    .count()
+                    + 1
+            })
+            .unwrap_or(1) as u16;
+        let center_row = current.dimensions.rows.saturating_sub(content_rows) / 2;
         let center_row = center_row.saturating_add(current.start_row);
         self.terminal.execute(&TerminalCommand::MoveToRow(center_row))?;
         Ok(())
@@ -281,10 +297,16 @@ where
         };
         let cursor = match &properties.position {
             ImagePosition::Cursor => starting_cursor.clone(),
-            ImagePosition::Center => Self::center_cursor(columns, &rect.dimensions, &starting_cursor),
+            ImagePosition::Center => Self::center_cursor(columns, rows, &rect.dimensions, &starting_cursor),
             ImagePosition::Right => Self::align_cursor_right(columns, &rect.dimensions, &starting_cursor),
         };
-        self.terminal.execute(&TerminalCommand::MoveToColumn(cursor.column))?;
+        match properties.position {
+            ImagePosition::Center => self.terminal.execute(&TerminalCommand::MoveTo {
+                column: cursor.column,
+                row: rect.start_row.saturating_add(cursor.row),
+            })?,
+            _ => self.terminal.execute(&TerminalCommand::MoveToColumn(cursor.column))?,
+        }
 
         let options = PrintOptions {
             columns,
@@ -303,10 +325,11 @@ where
         self.apply_colors()
     }
 
-    fn center_cursor(columns: u16, window: &WindowSize, cursor: &CursorPosition) -> CursorPosition {
+    fn center_cursor(columns: u16, rows: u16, window: &WindowSize, cursor: &CursorPosition) -> CursorPosition {
         let start_column = window.columns / 2 - (columns / 2);
         let start_column = start_column + cursor.column;
-        CursorPosition { row: cursor.row, column: start_column }
+        let start_row = window.rows.saturating_sub(rows) / 2;
+        CursorPosition { row: start_row, column: start_column }
     }
 
     fn align_cursor_right(columns: u16, window: &WindowSize, cursor: &CursorPosition) -> CursorPosition {
@@ -348,7 +371,7 @@ where
     fn render_dynamic(&mut self, generator: &dyn AsRenderOperations) -> RenderResult {
         let operations = generator.as_render_operations(&self.current_available_dimensions());
         for operation in operations {
-            self.render_one(&operation)?;
+            self.render_one(&operation, &[])?;
         }
         Ok(())
     }
@@ -357,7 +380,7 @@ where
         let dimensions = self.window_rects.first().expect("no rects").dimensions;
         let operations = generator.as_render_operations(&dimensions);
         for operation in operations {
-            self.render_one(&operation)?;
+            self.render_one(&operation, &[])?;
         }
         Ok(())
     }
@@ -365,7 +388,7 @@ where
     fn render_async(&mut self, generator: &dyn RenderAsync) -> RenderResult {
         let operations = generator.as_render_operations(&self.current_available_dimensions());
         for operation in operations {
-            self.render_one(&operation)?;
+            self.render_one(&operation, &[])?;
         }
         Ok(())
     }
@@ -910,7 +933,7 @@ mod tests {
         let expected = [
             // centered 20x10, the image is 2x2 so we stand one away from center
             Instruction::MoveTo(40, 45),
-            Instruction::MoveToColumn(49),
+            Instruction::MoveTo(49, 49),
             Instruction::PrintImage(PrintOptions {
                 columns: 2,
                 rows: 2,
@@ -923,6 +946,22 @@ mod tests {
             Instruction::MoveToRow(47),
         ];
         assert_eq!(ops, expected);
+    }
+
+    #[test]
+    fn centered_image_after_text() {
+        let image = DynamicImage::new(2, 2, ColorType::Rgba8);
+        let image = Image::new(TerminalImage::Ascii(image.into()), ImageSource::Generated);
+        let properties = ImageRenderProperties { position: ImagePosition::Center, ..Default::default() };
+        let ops = render_with_max_size(&[
+            RenderOperation::RenderText {
+                line: "title".into(),
+                alignment: Alignment::Left { margin: Margin::Fixed(0) },
+            },
+            RenderOperation::RenderLineBreak,
+            RenderOperation::RenderImage(image, properties),
+        ]);
+        assert!(ops.contains(&Instruction::MoveTo(49, 49)));
     }
 
     // same as the above but use right alignment
@@ -975,7 +1014,7 @@ mod tests {
         let expected = [
             // centered 20x10, the image is 2x2 so we stand one away from center
             Instruction::MoveTo(40, 45),
-            Instruction::MoveToColumn(49),
+            Instruction::MoveTo(49, 49),
             Instruction::PrintImage(PrintOptions {
                 columns: 2,
                 rows: 2,

@@ -271,9 +271,9 @@ title: |
         let lines = Test::new(input).theme(theme).render().rows(7).columns(16).advances(0).into_lines();
         let expected = &[
             "                ",
-            "                ",
             "      Beep      ",
             "   Boop boop    ",
+            "                ",
             "                ",
             "                ",
             "                ",

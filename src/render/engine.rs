@@ -211,26 +211,98 @@ where
     }
 
     fn jump_to_vertical_center(&mut self, remaining_operations: &[&RenderOperation]) -> RenderResult {
-        let current = self.current_rect();
+        let current = self.current_rect().clone();
+        // When jumping from within a column, only that column's content is centered.
+        let in_column = !matches!(self.layout, LayoutState::Default);
         let content_operations: Vec<_> = remaining_operations
             .iter()
-            .take_while(|operation| !matches!(operation, RenderOperation::ExitLayout))
+            .take_while(|operation| {
+                !in_column
+                    || !matches!(
+                        operation,
+                        RenderOperation::ExitLayout
+                            | RenderOperation::EnterColumn { .. }
+                            | RenderOperation::InitColumnLayout { .. }
+                    )
+            })
+            .copied()
             .collect();
         let last_content_operation =
             content_operations.iter().rposition(|operation| !matches!(operation, RenderOperation::RenderLineBreak));
         let content_rows = last_content_operation
-            .map(|last| {
-                content_operations[..=last]
-                    .iter()
-                    .filter(|operation| matches!(operation, RenderOperation::RenderLineBreak))
-                    .count()
-                    + 1
-            })
+            .map(|last| self.measure_rows(&content_operations[..=last], &current.dimensions) + 1)
             .unwrap_or(1) as u16;
         let center_row = current.dimensions.rows.saturating_sub(content_rows) / 2;
         let center_row = center_row.saturating_add(current.start_row);
         self.terminal.execute(&TerminalCommand::MoveToRow(center_row))?;
         Ok(())
+    }
+
+    /// Estimate how many rows the given operations take up when rendered in a rect of the given
+    /// dimensions. Columns in a layout sit side by side, so a layout takes up as many rows as its
+    /// tallest column.
+    fn measure_rows(&self, operations: &[&RenderOperation], dimensions: &WindowSize) -> usize {
+        // Images are sized as if they started at the top of their rect, which is the most space
+        // they could possibly take.
+        let top = CursorPosition { row: 0, column: 0 };
+        let mut rows = 0;
+        // The dimensions of each column in the current layout, along with the rows used in each.
+        let mut layout: Option<(Vec<WindowSize>, Vec<usize>)> = None;
+        let mut current_column = None;
+        for operation in operations {
+            let (column_dimensions, column_rows) = match (&mut layout, current_column) {
+                (Some((columns, heights)), Some(index)) => (columns[index], &mut heights[index]),
+                _ => (*dimensions, &mut rows),
+            };
+            match operation {
+                RenderOperation::RenderLineBreak => *column_rows += 1,
+                RenderOperation::RenderImage(image, properties) if !properties.restore_cursor => {
+                    *column_rows += self.image_size(image, properties, &column_dimensions, &top).1 as usize;
+                }
+                RenderOperation::InitColumnLayout { columns, margin, .. } => {
+                    if let Some((_, heights)) = layout.take() {
+                        rows += heights.into_iter().max().unwrap_or(0);
+                    }
+                    let widths = self.column_widths(columns, *margin, dimensions.columns);
+                    let columns: Vec<_> = widths.into_iter().map(|width| dimensions.set_columns(width)).collect();
+                    let heights = vec![0; columns.len()];
+                    layout = Some((columns, heights));
+                    current_column = None;
+                }
+                RenderOperation::EnterColumn { column } => {
+                    current_column = layout.as_ref().filter(|(columns, _)| *column < columns.len()).map(|_| *column);
+                }
+                RenderOperation::ExitLayout => {
+                    if let Some((_, heights)) = layout.take() {
+                        rows += heights.into_iter().max().unwrap_or(0);
+                    }
+                    current_column = None;
+                }
+                _ => (),
+            }
+        }
+        if let Some((_, heights)) = layout {
+            rows += heights.into_iter().max().unwrap_or(0);
+        }
+        rows
+    }
+
+    /// The usable width of each column in a layout, matching what `init_column_layout` and
+    /// `enter_column` end up using.
+    fn column_widths(&self, widths: &[u8], margin: Margin, total_columns: u16) -> Vec<u16> {
+        let total_units = widths.iter().copied().map(u16::from).sum::<u16>().max(1);
+        let unit_columns = total_columns as f64 / total_units as f64;
+        let total_margin = margin.as_characters(self.window_rects[0].dimensions.columns);
+        let last = widths.len().saturating_sub(1);
+        widths
+            .iter()
+            .enumerate()
+            .map(|(index, width)| {
+                let width = (f64::from(*width) * unit_columns) as u16;
+                let margin = if index == 0 || index == last { total_margin } else { total_margin / 2 * 2 };
+                width.saturating_sub(margin)
+            })
+            .collect()
     }
 
     fn jump_to_row(&mut self, row: u16) -> RenderResult {
@@ -279,34 +351,13 @@ where
         let starting_cursor =
             CursorPosition { row: starting_row.saturating_sub(rect.start_row), column: rect.start_column };
 
-        let (width, height) = image.image().dimensions();
-        let (columns, rows) = match properties.size {
-            ImageSize::ShrinkIfNeeded => {
-                let image_scale =
-                    self.image_scaler.fit_image_to_rect(&rect.dimensions, width, height, &starting_cursor);
-                (image_scale.columns, image_scale.rows)
-            }
-            ImageSize::Specific(columns, rows) => (columns, rows),
-            ImageSize::WidthScaled { ratio } => {
-                let extra_columns = (rect.dimensions.columns as f64 * (1.0 - ratio)).ceil() as u16;
-                let dimensions = rect.dimensions.shrink_columns(extra_columns);
-                let image_scale =
-                    self.image_scaler.scale_image(&dimensions, &rect.dimensions, width, height, &starting_cursor);
-                (image_scale.columns, image_scale.rows)
-            }
-        };
+        let (columns, rows) = self.image_size(image, properties, &rect.dimensions, &starting_cursor);
         let cursor = match &properties.position {
             ImagePosition::Cursor => starting_cursor.clone(),
-            ImagePosition::Center => Self::center_cursor(columns, rows, &rect.dimensions, &starting_cursor),
+            ImagePosition::Center => Self::center_cursor(columns, &rect.dimensions, &starting_cursor),
             ImagePosition::Right => Self::align_cursor_right(columns, &rect.dimensions, &starting_cursor),
         };
-        match properties.position {
-            ImagePosition::Center => self.terminal.execute(&TerminalCommand::MoveTo {
-                column: cursor.column,
-                row: rect.start_row.saturating_add(cursor.row),
-            })?,
-            _ => self.terminal.execute(&TerminalCommand::MoveToColumn(cursor.column))?,
-        }
+        self.terminal.execute(&TerminalCommand::MoveToColumn(cursor.column))?;
 
         let options = PrintOptions {
             columns,
@@ -325,11 +376,33 @@ where
         self.apply_colors()
     }
 
-    fn center_cursor(columns: u16, rows: u16, window: &WindowSize, cursor: &CursorPosition) -> CursorPosition {
+    fn image_size(
+        &self,
+        image: &Image,
+        properties: &ImageRenderProperties,
+        dimensions: &WindowSize,
+        cursor: &CursorPosition,
+    ) -> (u16, u16) {
+        let (width, height) = image.image().dimensions();
+        match properties.size {
+            ImageSize::ShrinkIfNeeded => {
+                let image_scale = self.image_scaler.fit_image_to_rect(dimensions, width, height, cursor);
+                (image_scale.columns, image_scale.rows)
+            }
+            ImageSize::Specific(columns, rows) => (columns, rows),
+            ImageSize::WidthScaled { ratio } => {
+                let extra_columns = (dimensions.columns as f64 * (1.0 - ratio)).ceil() as u16;
+                let scale_size = dimensions.shrink_columns(extra_columns);
+                let image_scale = self.image_scaler.scale_image(&scale_size, dimensions, width, height, cursor);
+                (image_scale.columns, image_scale.rows)
+            }
+        }
+    }
+
+    fn center_cursor(columns: u16, window: &WindowSize, cursor: &CursorPosition) -> CursorPosition {
         let start_column = window.columns / 2 - (columns / 2);
         let start_column = start_column + cursor.column;
-        let start_row = window.rows.saturating_sub(rows) / 2;
-        CursorPosition { row: start_row, column: start_column }
+        CursorPosition { row: cursor.row, column: start_column }
     }
 
     fn align_cursor_right(columns: u16, window: &WindowSize, cursor: &CursorPosition) -> CursorPosition {
@@ -933,7 +1006,7 @@ mod tests {
         let expected = [
             // centered 20x10, the image is 2x2 so we stand one away from center
             Instruction::MoveTo(40, 45),
-            Instruction::MoveTo(49, 49),
+            Instruction::MoveToColumn(49),
             Instruction::PrintImage(PrintOptions {
                 columns: 2,
                 rows: 2,
@@ -961,7 +1034,9 @@ mod tests {
             RenderOperation::RenderLineBreak,
             RenderOperation::RenderImage(image, properties),
         ]);
-        assert!(ops.contains(&Instruction::MoveTo(49, 49)));
+        // The image stays on the row after the text instead of jumping somewhere else.
+        assert!(ops.contains(&Instruction::MoveToColumn(49)));
+        assert!(!ops.iter().any(|op| matches!(op, Instruction::MoveTo(49, _))));
     }
 
     // same as the above but use right alignment
@@ -1014,7 +1089,7 @@ mod tests {
         let expected = [
             // centered 20x10, the image is 2x2 so we stand one away from center
             Instruction::MoveTo(40, 45),
-            Instruction::MoveTo(49, 49),
+            Instruction::MoveToColumn(49),
             Instruction::PrintImage(PrintOptions {
                 columns: 2,
                 rows: 2,

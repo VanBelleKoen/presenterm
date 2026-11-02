@@ -1,3 +1,11 @@
+# Unreleased
+
+## New features
+
+* Add `--dual`/`-d` to present from two terminals: a master showing the current slide, speaker notes and next slide, and a new window showing only the current slide that follows the master.
+* Add the `center_slides` theme option to start every slide centered vertically and horizontally.
+* Center multi-line paragraphs as a block, apply `alignment` to block quotes and alerts, center images and make vertical centering aware of images and column layouts.
+
 # v0.16.1 - 2026-02-19
 
 ## New features

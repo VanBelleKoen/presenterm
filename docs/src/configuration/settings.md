@@ -352,16 +352,6 @@ d2:
   scale: 2
 ```
 
-## Enabling speaker note publishing
-
-If you don't want to run _presenterm_ with `--publish-speaker-notes` every time you want to publish speaker notes, you 
-can set the `speaker_notes.always_publish` attribute to `true`.
-
-```yaml
-speaker_notes:
-  always_publish: true
-```
-
 # Presentation exports
 
 The configurations that affect PDF and HTML exports.
@@ -412,4 +402,3 @@ export:
       bold: /usr/share/fonts/truetype/tlwg/TlwgMono-Bold.ttf
       bold_italic: /usr/share/fonts/truetype/tlwg/TlwgMono-BoldOblique.ttf
 ```
-

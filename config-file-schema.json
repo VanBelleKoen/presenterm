@@ -17,6 +17,9 @@
         }
       ]
     },
+    "dual": {
+      "$ref": "#/definitions/DualConfig"
+    },
     "export": {
       "$ref": "#/definitions/ExportConfig"
     },
@@ -28,9 +31,6 @@
     },
     "snippet": {
       "$ref": "#/definitions/SnippetConfig"
-    },
-    "speaker_notes": {
-      "$ref": "#/definitions/SpeakerNotesConfig"
     },
     "transition": {
       "anyOf": [
@@ -141,6 +141,21 @@
             {
               "$ref": "#/definitions/ValidateOverflows"
             }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "DualConfig": {
+      "description": "The configuration for the dual terminal mode.",
+      "type": "object",
+      "properties": {
+        "spawn_command": {
+          "description": "The command used to open the slave terminal window.\n\n`{cmd}` is replaced by the command to run. If unset, the terminal is detected automatically.",
+          "default": null,
+          "type": [
+            "string",
+            "null"
           ]
         }
       },
@@ -994,27 +1009,6 @@
           ]
         }
       ]
-    },
-    "SpeakerNotesConfig": {
-      "type": "object",
-      "properties": {
-        "always_publish": {
-          "description": "Whether to always publish speaker notes.",
-          "default": false,
-          "type": "boolean"
-        },
-        "listen_address": {
-          "description": "The address in which to listen for speaker note events.",
-          "default": "127.255.255.255:59418",
-          "type": "string"
-        },
-        "publish_address": {
-          "description": "The address in which to publish speaker notes events.",
-          "default": "127.255.255.255:59418",
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
     },
     "ThemeConfig": {
       "anyOf": [

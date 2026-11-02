@@ -18,6 +18,8 @@ Things you should know when using image tags in your presentation's markdown are
   `$PRESENTATION_DIRECTORY/food/potato.png`.
 * Images will be rendered by default in their original size. That is, if your terminal is 300x200px and your image is 
 200x100px, it will take up 66% of your horizontal space and 50% of your vertical space.
+* Images are centered horizontally by default, and they count towards the height of the slide's content when using 
+  [vertical centering](commands.md#centering-and-layouts).
 * The exception to the point above is if the image does not fit in your terminal, it will be resized accordingly while 
   preserving the aspect ratio.
 * If your terminal does not support any of the graphics protocol above, images will be rendered using ascii blocks. It 

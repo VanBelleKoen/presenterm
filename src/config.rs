@@ -8,7 +8,6 @@ use serde::Deserialize;
 use std::{
     collections::{BTreeMap, HashMap},
     fs, io,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU8,
     path::{Path, PathBuf},
 };
@@ -40,7 +39,7 @@ pub struct Config {
     pub snippet: SnippetConfig,
 
     #[serde(default)]
-    pub speaker_notes: SpeakerNotesConfig,
+    pub dual: DualConfig,
 
     #[serde(default)]
     pub export: ExportConfig,
@@ -564,31 +563,16 @@ impl Default for KeyBindingsConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// The configuration for the dual terminal mode.
+#[derive(Clone, Debug, Default, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-pub struct SpeakerNotesConfig {
-    /// The address in which to listen for speaker note events.
-    #[serde(default = "default_speaker_notes_listen_address")]
-    pub listen_address: SocketAddr,
-
-    /// The address in which to publish speaker notes events.
-    #[serde(default = "default_speaker_notes_publish_address")]
-    pub publish_address: SocketAddr,
-
-    /// Whether to always publish speaker notes.
+pub struct DualConfig {
+    /// The command used to open the slave terminal window.
+    ///
+    /// `{cmd}` is replaced by the command to run. If unset, the terminal is detected automatically.
     #[serde(default)]
-    pub always_publish: bool,
-}
-
-impl Default for SpeakerNotesConfig {
-    fn default() -> Self {
-        Self {
-            listen_address: default_speaker_notes_listen_address(),
-            publish_address: default_speaker_notes_publish_address(),
-            always_publish: false,
-        }
-    }
+    pub spawn_command: Option<String>,
 }
 
 /// The export configuration.
@@ -787,26 +771,6 @@ fn default_transition_duration_millis() -> u16 {
 
 fn default_transition_frames() -> usize {
     30
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn default_speaker_notes_listen_address() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 255, 255, 255)), 59418)
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn default_speaker_notes_listen_address() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 59418)
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn default_speaker_notes_publish_address() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 255, 255, 255)), 59418)
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn default_speaker_notes_publish_address() -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 59418)
 }
 
 #[cfg(test)]

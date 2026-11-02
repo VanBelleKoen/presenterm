@@ -3,6 +3,8 @@ pub(crate) mod capabilities;
 pub(crate) mod emulator;
 pub(crate) mod image;
 pub(crate) mod printer;
+pub(crate) mod region;
+pub(crate) mod spawn;
 pub(crate) mod virt;
 
 pub(crate) use printer::{Terminal, TerminalWrite, should_hide_cursor};

@@ -19,6 +19,7 @@
     - [Exports](./features/exports.md)
     - [Slide transitions](./features/slide-transitions.md)
     - [Speaker notes](./features/speaker-notes.md)
+    - [Dual terminal mode](./features/dual-terminal.md)
 - [Configuration](./configuration/introduction.md)
     - [Options](./configuration/options.md)
     - [Settings](./configuration/settings.md)

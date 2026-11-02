@@ -160,6 +160,38 @@ centered
 right aligned
 ```
 
+The alignment applies to paragraphs, block quotes and alerts. A multi-line centered paragraph is centered as a single 
+block: the lines keep their relative alignment and the block is centered based on its longest line. It doesn't center 
+each line independently.
+
+The alignment is reset at the start of every slide.
+
+## Centering a whole presentation
+
+To start every slide centered, both vertically and horizontally, set `center_slides: true` in your theme's 
+[default style](themes/definition.md#default-style). You can also set it in a presentation's front matter without 
+creating a theme:
+
+```yaml
+---
+theme:
+  override:
+    default:
+      center_slides: true
+---
+```
+
+Slides can still override this by using `alignment` or `jump_to_center` and the override only affects that slide. See 
+the [center slides example](https://github.com/VanBelleKoen/presenterm/blob/master/examples/center-slides-test.md).
+
+## Centering and layouts
+
+Vertical centering (`jump_to_center`, `jump_to_middle` and `center_slides`) measures the content that follows it, 
+including images. When used inside a [column layout](layout.md), only the content of that column is centered, not 
+everything below it.
+
+Images are centered horizontally by default. See [images](images.md).
+
 
 ## User comments
 

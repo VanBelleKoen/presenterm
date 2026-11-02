@@ -1,6 +1,7 @@
 use super::{
+    dual::DualClient,
     keyboard::{CommandKeyBindings, KeyBindingsValidationError, KeyboardListener},
-    speaker_notes::{SpeakerNotesEvent, SpeakerNotesEventListener},
+    speaker_notes::SpeakerNotesEvent,
 };
 use crate::{config::KeyBindingsConfig, presenter::PresentationError};
 use serde::Deserialize;
@@ -10,35 +11,47 @@ use strum::EnumDiscriminants;
 /// A command listener that allows polling all command sources in a single place.
 pub struct CommandListener {
     keyboard: KeyboardListener,
-    speaker_notes_event_listener: Option<SpeakerNotesEventListener>,
+    dual_client: Option<DualClient>,
 }
 
 impl CommandListener {
-    /// Create a new command source over the given presentation path.
-    pub fn new(
-        config: KeyBindingsConfig,
-        speaker_notes_event_listener: Option<SpeakerNotesEventListener>,
-    ) -> Result<Self, KeyBindingsValidationError> {
+    /// Create a new command source.
+    pub fn new(config: KeyBindingsConfig) -> Result<Self, KeyBindingsValidationError> {
         let bindings = CommandKeyBindings::try_from(config)?;
-        Ok(Self { keyboard: KeyboardListener::new(bindings), speaker_notes_event_listener })
+        Ok(Self { keyboard: KeyboardListener::new(bindings), dual_client: None })
+    }
+
+    /// Follow a master presentation.
+    ///
+    /// The keyboard is restricted to the commands that don't change what is being shown.
+    pub fn with_dual_client(mut self, client: DualClient) -> Self {
+        self.dual_client = Some(client);
+        self
     }
 
     /// Try to get the next command.
     ///
     /// This attempts to get a command and returns `Ok(None)` on timeout.
     pub(crate) fn try_next_command(&mut self) -> Result<Option<Command>, PresentationError> {
-        if let Some(receiver) = &self.speaker_notes_event_listener {
-            if let Some(msg) = receiver.try_recv()? {
-                let command = match msg {
-                    SpeakerNotesEvent::GoTo { slide, chunk } => Command::GoToSlideChunk { slide, chunk },
-                    SpeakerNotesEvent::Exit => Command::Exit,
-                };
-                return Ok(Some(command));
+        if let Some(client) = &mut self.dual_client {
+            if let Some(msg) = client.try_recv()? {
+                return Ok(Some(Self::event_to_command(msg)));
             }
         }
-        match self.keyboard.poll_next_command(Duration::from_millis(20))? {
-            Some(command) => Ok(Some(command)),
-            None => Ok(None),
+        let command = self.keyboard.poll_next_command(Duration::from_millis(20))?;
+        if self.dual_client.is_some() {
+            // The master is in charge of navigation.
+            return Ok(command.filter(|command| {
+                matches!(command, Command::Exit | Command::Redraw | Command::Suspend | Command::CloseModal)
+            }));
+        }
+        Ok(command)
+    }
+
+    fn event_to_command(event: SpeakerNotesEvent) -> Command {
+        match event {
+            SpeakerNotesEvent::GoTo { slide, chunk } => Command::GoToSlideChunk { slide, chunk },
+            SpeakerNotesEvent::Exit => Command::Exit,
         }
     }
 }

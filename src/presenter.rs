@@ -1,10 +1,12 @@
 use crate::{
     code::execute::SnippetExecutor,
     commands::{
+        dual::DualServer,
         listener::{Command, CommandListener},
-        speaker_notes::{SpeakerNotesEvent, SpeakerNotesEventPublisher},
+        speaker_notes::SpeakerNotesEvent,
     },
     config::{KeyBindingsConfig, SlideTransitionConfig, SlideTransitionStyleConfig},
+    dual_view,
     markdown::parse::MarkdownParser,
     presentation::{
         Presentation, Slide,
@@ -68,8 +70,9 @@ pub struct Presenter<'a> {
     image_printer: Arc<ImagePrinter>,
     themes: Themes,
     options: PresenterOptions,
-    speaker_notes_event_publisher: Option<SpeakerNotesEventPublisher>,
     poller: Poller,
+    dual_server: Option<DualServer>,
+    notes_presentation: Option<Presentation>,
 }
 
 impl<'a> Presenter<'a> {
@@ -85,7 +88,6 @@ impl<'a> Presenter<'a> {
         themes: Themes,
         image_printer: Arc<ImagePrinter>,
         options: PresenterOptions,
-        speaker_notes_event_publisher: Option<SpeakerNotesEventPublisher>,
     ) -> Self {
         Self {
             default_theme,
@@ -98,9 +100,15 @@ impl<'a> Presenter<'a> {
             image_printer,
             themes,
             options,
-            speaker_notes_event_publisher,
             poller: Poller::launch(),
+            dual_server: None,
+            notes_presentation: None,
         }
+    }
+
+    /// Run as the master of a dual terminal presentation.
+    pub fn enable_dual_master(&mut self, server: DualServer) {
+        self.dual_server = Some(server);
     }
 
     /// Run a presentation.
@@ -121,6 +129,9 @@ impl<'a> Presenter<'a> {
             self.render(&mut drawer)?;
 
             loop {
+                if let Some(server) = &mut self.dual_server {
+                    server.poll();
+                }
                 if self.process_poller_effects()? {
                     self.render(&mut drawer)?;
                 }
@@ -139,7 +150,7 @@ impl<'a> Presenter<'a> {
                 };
                 match self.apply_command(command) {
                     CommandSideEffect::Exit => {
-                        self.publish_event(SpeakerNotesEvent::Exit)?;
+                        self.publish_event(SpeakerNotesEvent::Exit);
                         return Ok(());
                     }
                     CommandSideEffect::Suspend => {
@@ -172,7 +183,7 @@ impl<'a> Presenter<'a> {
                 self.publish_event(SpeakerNotesEvent::GoTo {
                     slide: slide_index,
                     chunk: slide.current_chunk_index() as u32,
-                })?;
+                });
             }
         }
     }
@@ -207,11 +218,10 @@ impl<'a> Presenter<'a> {
         Ok(needs_render)
     }
 
-    fn publish_event(&self, event: SpeakerNotesEvent) -> io::Result<()> {
-        if let Some(publisher) = &self.speaker_notes_event_publisher {
-            publisher.send(event)?;
+    fn publish_event(&mut self, event: SpeakerNotesEvent) {
+        if let Some(server) = &mut self.dual_server {
+            server.send(&event);
         }
-        Ok(())
     }
 
     fn check_async_error(&mut self) -> bool {
@@ -234,9 +244,10 @@ impl<'a> Presenter<'a> {
 
     fn render(&mut self, drawer: &mut TerminalDrawer) -> RenderResult {
         let result = match &self.state {
-            PresenterState::Presenting(presentation) => {
-                drawer.render_operations(presentation.current_slide().iter_visible_operations())
-            }
+            PresenterState::Presenting(presentation) => match &mut self.notes_presentation {
+                Some(notes) => dual_view::render(drawer, presentation, notes, self.options.font_size_fallback),
+                None => drawer.render_operations(presentation.current_slide().iter_visible_operations()),
+            },
             PresenterState::SlideIndex(presentation) => {
                 drawer.render_operations(presentation.current_slide().iter_visible_operations())?;
                 drawer.render_operations(presentation.iter_slide_index_operations())
@@ -368,7 +379,11 @@ impl<'a> Presenter<'a> {
         }
         self.poller.send(PollerCommand::Reset);
         self.resources.clear_watches();
-        match self.load_presentation(path) {
+        if self.dual_server.is_some() {
+            // Notes are optional so failing to load them is not fatal.
+            self.notes_presentation = self.load_presentation(path, true).ok();
+        }
+        match self.load_presentation(path, false) {
             Ok(mut presentation) => {
                 let current = self.state.presentation();
                 if let Some(modification) = PresentationDiffer::find_first_modification(current, &presentation) {
@@ -435,7 +450,12 @@ impl<'a> Presenter<'a> {
         }
     }
 
-    fn load_presentation(&mut self, path: &Path) -> Result<Presentation, LoadPresentationError> {
+    fn load_presentation(&mut self, path: &Path, notes_only: bool) -> Result<Presentation, LoadPresentationError> {
+        let mut builder_options = self.options.builder_options.clone();
+        if notes_only {
+            builder_options.render_speaker_notes_only = true;
+            builder_options.omit_titles_in_speaker_notes = true;
+        }
         let presentation = PresentationBuilder::new(
             self.default_theme,
             self.resources.clone(),
@@ -445,7 +465,7 @@ impl<'a> Presenter<'a> {
             ImageRegistry::new(self.image_printer.clone()),
             self.options.bindings.clone(),
             &self.parser,
-            self.options.builder_options.clone(),
+            builder_options,
         )?
         .build(path)?;
         Ok(presentation)
@@ -483,6 +503,10 @@ impl<'a> Presenter<'a> {
     }
 
     fn animate_next_slide(&mut self, drawer: &mut TerminalDrawer) -> RenderResult {
+        // Transitions render the whole screen so they don't work with the master layout.
+        if self.dual_server.is_some() {
+            return Ok(());
+        }
         let Some(config) = self.options.transition.clone() else {
             return Ok(());
         };
@@ -499,6 +523,10 @@ impl<'a> Presenter<'a> {
     }
 
     fn animate_previous_slide(&mut self, drawer: &mut TerminalDrawer) -> RenderResult {
+        // Transitions render the whole screen so they don't work with the master layout.
+        if self.dual_server.is_some() {
+            return Ok(());
+        }
         let Some(config) = self.options.transition.clone() else {
             return Ok(());
         };

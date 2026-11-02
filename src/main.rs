@@ -1,6 +1,9 @@
 use crate::{
     code::{execute::SnippetExecutor, highlighting::HighlightThemeSet},
-    commands::listener::CommandListener,
+    commands::{
+        dual::{DualClient, DualServer},
+        listener::CommandListener,
+    },
     config::{Config, ImageProtocol, ValidateOverflows},
     demo::ThemesDemo,
     export::exporter::Exporter,
@@ -11,13 +14,13 @@ use crate::{
     terminal::{
         GraphicsMode,
         image::printer::{ImagePrinter, ImageRegistry},
+        spawn::{self, Launcher},
     },
     theme::{raw::PresentationTheme, registry::PresentationThemeRegistry},
     third_party::{ThirdPartyConfigs, ThirdPartyRender},
 };
 use anyhow::anyhow;
 use clap::{CommandFactory, Parser, error::ErrorKind};
-use commands::speaker_notes::{SpeakerNotesEventListener, SpeakerNotesEventPublisher};
 use comrak::Arena;
 use config::ConfigLoadError;
 use crossterm::{
@@ -30,6 +33,7 @@ use render::{engine::MaxSize, properties::WindowSize};
 use std::{
     env::{self, current_dir},
     io,
+    net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -41,6 +45,7 @@ mod code;
 mod commands;
 mod config;
 mod demo;
+mod dual_view;
 mod export;
 mod markdown;
 mod presentation;
@@ -130,13 +135,14 @@ struct Cli {
     #[clap(short, long, env = "PRESENTERM_CONFIG_FILE")]
     config_file: Option<String>,
 
-    /// Whether to publish speaker notes to local listeners.
-    #[clap(short = 'P', long, group = "speaker-notes")]
-    publish_speaker_notes: bool,
-
-    /// Whether to listen for speaker notes.
+    /// Present in two terminals: this one becomes the master, showing the current slide, speaker
+    /// notes and next slide, and a new terminal window shows only the current slide.
     #[clap(short, long, group = "speaker-notes")]
-    listen_speaker_notes: bool,
+    dual: bool,
+
+    /// Follow a master presentation at the given address. Used internally by `--dual`.
+    #[clap(long, hide = true, value_name = "ADDRESS", group = "speaker-notes")]
+    dual_slave: Option<SocketAddr>,
 
     /// Whether to validate snippets.
     #[clap(long)]
@@ -236,7 +242,7 @@ impl CoreComponents {
             (false, false) => PresentMode::Development,
         };
 
-        let mut builder_options = Self::make_builder_options(&config, force_default_theme, cli.listen_speaker_notes);
+        let mut builder_options = Self::make_builder_options(&config, force_default_theme, false);
         if cli.enable_snippet_execution {
             builder_options.enable_snippet_execution = true;
         }
@@ -328,29 +334,77 @@ impl CoreComponents {
     }
 }
 
-struct SpeakerNotesComponents {
-    events_listener: Option<SpeakerNotesEventListener>,
-    events_publisher: Option<SpeakerNotesEventPublisher>,
+const DUAL_SLAVE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const DUAL_MANUAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn absolute_path(path: &Path) -> PathBuf {
+    path.canonicalize().or_else(|_| std::path::absolute(path)).unwrap_or_else(|_| path.to_path_buf())
 }
 
-impl SpeakerNotesComponents {
-    fn new(cli: &Cli, config: &Config, path: &Path) -> anyhow::Result<Self> {
-        let full_presentation_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let publish_speaker_notes =
-            cli.publish_speaker_notes || (config.speaker_notes.always_publish && !cli.listen_speaker_notes);
-        let events_publisher = publish_speaker_notes
-            .then(|| {
-                SpeakerNotesEventPublisher::new(config.speaker_notes.publish_address, full_presentation_path.clone())
-            })
-            .transpose()
-            .map_err(|e| anyhow!("failed to create speaker notes publisher: {e}"))?;
-        let events_listener = cli
-            .listen_speaker_notes
-            .then(|| SpeakerNotesEventListener::new(config.speaker_notes.listen_address, full_presentation_path))
-            .transpose()
-            .map_err(|e| anyhow!("failed to create speaker notes listener: {e}"))?;
-        Ok(Self { events_listener, events_publisher })
+/// The command that runs the slave side of a dual presentation.
+fn dual_slave_command(cli: &Cli, path: &Path, address: SocketAddr) -> anyhow::Result<Vec<String>> {
+    let exe = env::current_exe().map_err(|e| anyhow!("failed to find presenterm executable: {e}"))?;
+    let mut args = vec![exe.to_string_lossy().into_owned(), "--dual-slave".into(), address.to_string()];
+    if let Some(config_file) = &cli.config_file {
+        args.extend(["--config-file".into(), absolute_path(Path::new(config_file)).to_string_lossy().into_owned()]);
     }
+    if let Some(theme) = &cli.theme {
+        args.extend(["--theme".into(), theme.clone()]);
+    }
+    if let Some(protocol) = &cli.image_protocol {
+        if let Some(value) = clap::ValueEnum::to_possible_value(protocol) {
+            args.extend(["--image-protocol".into(), value.get_name().to_string()]);
+        }
+    }
+    if cli.present {
+        args.push("--present".into());
+    }
+    if cli.enable_snippet_execution {
+        args.push("-x".into());
+    }
+    if cli.enable_snippet_execution_replace {
+        args.push("-X".into());
+    }
+    args.push("--".into());
+    args.push(absolute_path(path).to_string_lossy().into_owned());
+    Ok(args)
+}
+
+/// Start the master side of a dual presentation and open the slave terminal.
+fn start_dual_master(cli: &Cli, config: &Config, path: &Path) -> anyhow::Result<DualServer> {
+    let mut server = DualServer::bind().map_err(|e| anyhow!("failed to create dual presentation channel: {e}"))?;
+    let address = server.address()?;
+    let args = dual_slave_command(cli, path, address)?;
+    let launched = match &config.dual.spawn_command {
+        Some(template) => spawn::launch_from_template(template, &args),
+        None => match Launcher::detect(|name| env::var(name).ok()) {
+            Some(launcher) => launcher.launch(&args),
+            None => Err(io::Error::other("unsupported terminal")),
+        },
+    };
+    let timeout = match launched {
+        Ok(()) => DUAL_SLAVE_CONNECT_TIMEOUT,
+        Err(e) => {
+            eprintln!("Could not open a new terminal window ({e}).");
+            eprintln!(
+                "Run this in another terminal to open the slave presentation:\n\n  {}\n",
+                spawn::shell_join(&args)
+            );
+            eprintln!("Waiting for it to connect, press Ctrl+C to cancel...");
+            DUAL_MANUAL_CONNECT_TIMEOUT
+        }
+    };
+    let start = std::time::Instant::now();
+    while !server.has_slave() && start.elapsed() < timeout {
+        server.poll();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // A slave that is slow to start is accepted whenever it connects, so there is nothing to report.
+    if !server.has_slave() && timeout == DUAL_MANUAL_CONNECT_TIMEOUT {
+        eprintln!("The slave presentation did not connect, continuing without it.");
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Ok(server)
 }
 
 fn overflow_validation_enabled(mode: &PresentMode, config: &ValidateOverflows) -> bool {
@@ -456,9 +510,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             exporter.export_html(&path, output_directory, cli.export_output.as_deref())?;
         }
     } else {
-        let SpeakerNotesComponents { events_listener, events_publisher } =
-            SpeakerNotesComponents::new(&cli, &config, &path)?;
-        let command_listener = CommandListener::new(config.bindings.clone(), events_listener)?;
+        let mut command_listener = CommandListener::new(config.bindings.clone())?;
+        if let Some(address) = cli.dual_slave {
+            let client = DualClient::connect(address).map_err(|e| anyhow!("failed to connect to master: {e}"))?;
+            command_listener = command_listener.with_dual_client(client);
+        }
+        let dual_server = cli.dual.then(|| start_dual_master(&cli, &config, &path)).transpose()?;
 
         builder_options.print_modal_background = matches!(graphics_mode, GraphicsMode::Kitty { .. });
         let options = PresenterOptions {
@@ -475,7 +532,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             },
             transition: config.transition,
         };
-        let presenter = Presenter::new(
+        let mut presenter = Presenter::new(
             &default_theme,
             command_listener,
             parser,
@@ -485,9 +542,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             themes,
             printer,
             options,
-            events_publisher,
         );
-        presenter.present(&path)?;
+        if let Some(server) = dual_server {
+            presenter.enable_dual_master(server);
+        }
+        let result = presenter.present(&path);
+        if cli.dual_slave.is_some() {
+            spawn::close_slave_window();
+        }
+        result?;
     }
     Ok(())
 }

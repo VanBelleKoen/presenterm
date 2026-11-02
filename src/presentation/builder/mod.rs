@@ -88,6 +88,8 @@ pub struct PresentationBuilderOptions {
     pub enable_snippet_execution: bool,
     pub enable_snippet_execution_replace: bool,
     pub render_speaker_notes_only: bool,
+    /// Don't render slide titles when rendering speaker notes only.
+    pub omit_titles_in_speaker_notes: bool,
     pub auto_render_languages: Vec<SnippetLanguage>,
     pub theme_options: ThemeOptions,
     pub pause_before_incremental_lists: bool,
@@ -118,6 +120,7 @@ impl PresentationBuilderOptions {
             enable_snippet_execution: config.snippet.exec.enable,
             enable_snippet_execution_replace: config.snippet.exec_replace.enable,
             render_speaker_notes_only,
+            omit_titles_in_speaker_notes: false,
             auto_render_languages: options.auto_render_languages.clone(),
             theme_options: ThemeOptions { font_size_supported: TerminalEmulator::capabilities().font_size },
             pause_before_incremental_lists: config.defaults.incremental_lists.pause_before.unwrap_or(true),
@@ -171,6 +174,7 @@ impl Default for PresentationBuilderOptions {
             enable_snippet_execution: false,
             enable_snippet_execution_replace: false,
             render_speaker_notes_only: false,
+            omit_titles_in_speaker_notes: false,
             auto_render_languages: Default::default(),
             theme_options: ThemeOptions { font_size_supported: false },
             pause_before_incremental_lists: true,
@@ -434,6 +438,15 @@ impl<'a, 'b> PresentationBuilder<'a, 'b> {
         match element {
             MarkdownElement::Comment { comment, source_position } => self.process_comment(comment, source_position)?,
             MarkdownElement::SetexHeading { text } => self.push_slide_title(text)?,
+            MarkdownElement::Heading { level, text } => {
+                // Slide titles can start new slides so they must be processed to keep slides aligned.
+                if level == 1
+                    && self.options.h1_slide_titles
+                    && (self.slide_state.title.is_none() || self.options.implicit_slide_ends)
+                {
+                    self.push_slide_title(vec![text])?;
+                }
+            }
             MarkdownElement::ThematicBreak => {
                 if self.options.end_slide_shorthand {
                     self.terminate_slide();

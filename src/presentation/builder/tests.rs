@@ -72,6 +72,27 @@ hi
 }
 
 #[test]
+fn speaker_notes_slides_match_presentation_slides() {
+    let input = "
+# one
+
+<!-- speaker_note: first -->
+
+# two
+
+# three
+
+<!-- speaker_note: third -->
+";
+    let options = PresentationBuilderOptions { h1_slide_titles: true, implicit_slide_ends: true, ..Default::default() };
+    let notes_options = PresentationBuilderOptions { render_speaker_notes_only: true, ..options.clone() };
+    let slides = Test::new(input).options(options).build().iter_slides().count();
+    let notes = Test::new(input).options(notes_options).build().iter_slides().count();
+    assert_eq!(slides, 3);
+    assert_eq!(notes, slides);
+}
+
+#[test]
 fn parse_front_matter_strict() {
     let options = PresentationBuilderOptions { strict_front_matter_parsing: false, ..Default::default() };
     let elements = vec![MarkdownElement::FrontMatter("potato: yes".into())];

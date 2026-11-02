@@ -91,7 +91,9 @@ default:
     background: "040312"
 ```
 
-Set `center_slides: true` to make every slide behave as if it started with `jump_to_center`.
+Set `center_slides: true` to make every slide behave as if it started with `jump_to_center`. Individual slides can 
+override the alignment with the `alignment` [command](../commands.md#text-alignment); see [centering a whole 
+presentation](../commands.md#centering-a-whole-presentation).
 
 ## Intro slide
 

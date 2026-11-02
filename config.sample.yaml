@@ -49,15 +49,10 @@ snippet:
     # the number of threads to use when rendering `+render` code snippets.
     threads: 2
 
-speaker_notes:
-  # The endpoint to listen for speaker note events.
-  listen_address: "127.0.0.1:59418"
-
-  # The endpoint to publish speaker note events.
-  publish_address: "127.0.0.1:59418"
-
-  # Whether to always publish speaker notes even when `--publish-speaker-notes` is not set.
-  always_publish: false
+dual:
+  # The command used to open the slave terminal window when using `--dual`. `{cmd}` is replaced by the command to run.
+  # If unset, the terminal is detected automatically.
+  # spawn_command: "my-terminal --new-window -e {cmd}"
 
 bindings:
   # the keys that cause the presentation to move forwards.

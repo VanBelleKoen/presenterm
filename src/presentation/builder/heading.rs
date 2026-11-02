@@ -10,6 +10,9 @@ impl PresentationBuilder<'_, '_> {
         if self.options.implicit_slide_ends && !matches!(self.slide_state.last_element, LastElement::None) {
             self.terminate_slide();
         }
+        if self.options.render_speaker_notes_only && self.options.omit_titles_in_speaker_notes {
+            return Ok(());
+        }
 
         let mut style = self.theme.slide_title.clone();
         self.push_line_breaks(style.padding_top as usize);

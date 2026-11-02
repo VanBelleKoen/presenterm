@@ -37,6 +37,8 @@ Visit the [documentation][docs-introduction] to get started.
 * [Customizable themes][docs-themes] including colors, margins, layout (left/center aligned content), footer for every 
   slide, etc. Several [built-in themes][docs-builtin-themes] can give your presentation the look you want without 
   having to define your own.
+* [Centered slides and images][docs-centering]: start every slide centered vertically and horizontally with 
+  `center_slides`, or center individual slides, paragraphs and images.
 * Code highlighting for a [wide list of programming languages][docs-code-highlight].
 * [Font sizes][docs-font-sizes] for terminals that support them.
 * [Selective/dynamic][docs-selective-highlight] code highlighting that only highlights portions of code at a time.
@@ -53,8 +55,79 @@ Visit the [documentation][docs-introduction] to get started.
 * [Custom key bindings][docs-key-bindings].
 * [Automatically reload your presentation][docs-hot-reload] every time it changes for a fast development loop.
 * [Define speaker notes][docs-speaker-notes] to aid you during presentations.
+* [Present from two terminals][docs-dual] with a master view showing notes and the next slide.
 
 See the [introduction page][docs-introduction] to learn more.
+
+# Getting started
+
+Install _presenterm_ using one of the methods in the [installation guide][docs-install], then start a presentation with:
+
+```bash
+presenterm path/to/presentation.md
+```
+
+To try the included demo, clone the repository and run:
+
+```bash
+git clone https://github.com/VanBelleKoen/presenterm.git
+cd presenterm
+presenterm examples/demo.md
+```
+
+If you have Rust installed, you can install _presenterm_ directly with Cargo:
+
+```bash
+cargo install --locked presenterm
+```
+
+## Command-line reference
+
+The general form is `presenterm [OPTIONS] [PATH]`. `PATH` is the Markdown file containing the presentation. Run
+`presenterm --help` for the same options in your terminal.
+
+### Starting and customizing a presentation
+
+* `-p`, `--present`: start in presentation mode. By default, _presenterm_ uses development mode.
+* `-t NAME`, `--theme NAME`: use the named theme instead of the configured default.
+* `--image-protocol PROTOCOL`: select how terminal images are displayed. Supported values are `auto` (detect the
+  terminal's best option), `iterm2`, `iterm2-multipart`, `kitty-local`, `kitty-remote`, `sixel`, and `ascii-blocks`.
+* `-c FILE`, `--config-file FILE`: load settings from `FILE` rather than the default configuration file. The
+  `PRESENTERM_CONFIG_FILE` environment variable can be used instead.
+* `-x`, `--enable-snippet-execution`: enable execution of code snippets in the presentation.
+* `-X`, `--enable-snippet-execution-replace`: enable automatic execution and replacement for `+exec_replace` code
+  blocks.
+* `--validate-overflows`: check whether presentation content overflows the terminal screen.
+* `--validate-snippets`: validate code snippets in the presentation.
+
+### Exporting
+
+* `-e`, `--export-pdf`: export the presentation to PDF instead of displaying it. PDF export requires
+  [WeasyPrint][docs-exports].
+* `-E`, `--export-html`: export the presentation to a self-contained HTML file.
+* `-o FILE`, `--output FILE`: write the exported file to `FILE` instead of the default path next to the presentation.
+* `--export-temporary-path DIR`: store temporary export files in `DIR` instead of a temporary directory.
+
+See the [export guide][docs-exports] for more details.
+
+### Themes and information
+
+* `--list-themes`: browse the available themes.
+* `--current-theme`: print the name of the theme currently in use.
+* `--list-comment-commands`: list the available Markdown comment commands.
+* `--acknowledgements`: display acknowledgements.
+* `-h`, `--help`: display command-line help.
+* `-V`, `--version`: display the installed version.
+
+When built with the optional Cargo `json-schema` feature, `--generate-config-file-schema` prints the configuration
+file's JSON schema.
+
+### Speaker notes and dual-terminal mode
+
+* `-d`, `--dual`: open a second terminal window showing the current slide, while this terminal shows speaker notes and
+  a preview of the next slide.
+
+Read more about [speaker notes][docs-speaker-notes] and [dual-terminal mode][docs-dual].
 
 # presenterm in action
 
@@ -73,28 +146,31 @@ Gave a talk using _presenterm_? We would love to feature it here! Open a PR or i
 
 <!-- links -->
 
-[docs-introduction]: https://mfontanini.github.io/presenterm/
-[docs-basics]: https://mfontanini.github.io/presenterm/features/introduction.html
-[docs-intro-slide]: https://mfontanini.github.io/presenterm/features/introduction.html#introduction-slide
-[docs-slide-titles]: https://mfontanini.github.io/presenterm/features/introduction.html#slide-titles
-[docs-font-sizes]: https://mfontanini.github.io/presenterm/features/introduction.html#font-sizes
-[docs-pauses]: https://mfontanini.github.io/presenterm/features/commands.html#pauses
-[docs-images]: https://mfontanini.github.io/presenterm/features/images.html
-[docs-include]: https://mfontanini.github.io/presenterm/features/commands.html#including-external-markdown-files
-[docs-themes]: https://mfontanini.github.io/presenterm/features/themes/introduction.html
-[docs-builtin-themes]: https://mfontanini.github.io/presenterm/features/themes/introduction.html#built-in-themes
-[docs-code-highlight]: https://mfontanini.github.io/presenterm/features/code/highlighting.html
-[docs-code-execute]: https://mfontanini.github.io/presenterm/features/code/execution.html
-[docs-selective-highlight]: https://mfontanini.github.io/presenterm/features/code/highlighting.html#selective-highlighting
-[docs-slide-transitions]: https://mfontanini.github.io/presenterm/features/slide-transitions.html
-[docs-layout]: https://mfontanini.github.io/presenterm/features/layout.html
-[docs-mermaid]: https://mfontanini.github.io/presenterm/features/code/mermaid.html
-[docs-d2]: https://mfontanini.github.io/presenterm/features/code/d2.html
-[docs-latex]: https://mfontanini.github.io/presenterm/features/code/latex.html
-[docs-exports]: https://mfontanini.github.io/presenterm/features/exports.html
-[docs-key-bindings]: https://mfontanini.github.io/presenterm/configuration/settings.html#key-bindings
-[docs-hot-reload]: https://mfontanini.github.io/presenterm/features/introduction.html#hot-reload
-[docs-speaker-notes]: https://mfontanini.github.io/presenterm/features/speaker-notes.html
+[docs-introduction]: docs/src/introduction.md
+[docs-install]: docs/src/install.md
+[docs-basics]: docs/src/features/introduction.md
+[docs-intro-slide]: docs/src/features/introduction.md#introduction-slide
+[docs-slide-titles]: docs/src/features/introduction.md#slide-titles
+[docs-font-sizes]: docs/src/features/introduction.md#font-sizes
+[docs-pauses]: docs/src/features/commands.md#pauses
+[docs-images]: docs/src/features/images.md
+[docs-include]: docs/src/features/commands.md#including-external-markdown-files
+[docs-themes]: docs/src/features/themes/introduction.md
+[docs-builtin-themes]: docs/src/features/themes/introduction.md#built-in-themes
+[docs-code-highlight]: docs/src/features/code/highlighting.md
+[docs-code-execute]: docs/src/features/code/execution.md
+[docs-selective-highlight]: docs/src/features/code/highlighting.md#selective-highlighting
+[docs-slide-transitions]: docs/src/features/slide-transitions.md
+[docs-layout]: docs/src/features/layout.md
+[docs-mermaid]: docs/src/features/code/mermaid.md
+[docs-d2]: docs/src/features/code/d2.md
+[docs-latex]: docs/src/features/code/latex.md
+[docs-exports]: docs/src/features/exports.md
+[docs-key-bindings]: docs/src/configuration/settings.md#key-bindings
+[docs-hot-reload]: docs/src/features/introduction.md#hot-reload
+[docs-speaker-notes]: docs/src/features/speaker-notes.md
+[docs-dual]: docs/src/features/dual-terminal.md
+[docs-centering]: docs/src/features/commands.md#centering-a-whole-presentation
 [bat]: https://github.com/sharkdp/bat
 [syntect]: https://github.com/trishume/syntect
 [bringing-terminal-aesthetics]: https://www.youtube.com/watch?v=iepbyYrF_YQ

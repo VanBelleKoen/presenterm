@@ -26,6 +26,11 @@ impl WeightedLine {
         self.width
     }
 
+    /// The text in this line without any styling.
+    pub(crate) fn plain_text(&self) -> String {
+        self.text.iter().map(|text| text.text().content.as_str()).collect()
+    }
+
     /// The height of this line.
     pub(crate) fn font_size(&self) -> u8 {
         self.font_size
